@@ -1,4 +1,4 @@
-module ride-sharing
+module github.com/high-la/ride-sharing
 
 go 1.23.0
 
