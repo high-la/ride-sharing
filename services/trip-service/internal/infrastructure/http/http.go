@@ -25,17 +25,13 @@ func (s *HttpHandler) HandleTripPreview(w http.ResponseWriter, r *http.Request) 
 
 	err := json.NewDecoder(r.Body).Decode(&reqBody)
 	if err != nil {
-		http.Error(w, "failed to parse JSON data", http.StatusBadRequest)
+		http.Error(w, "failed to parse req JSON data", http.StatusBadRequest)
 		return
-	}
-
-	fare := &domain.RideFareModel{
-		UserID: "42",
 	}
 
 	ctx := r.Context()
 
-	t, err := s.Service.CreateTrip(ctx, fare)
+	t, err := s.Service.GetRoute(ctx, &reqBody.Pickup, &reqBody.Destination)
 	if err != nil {
 		log.Println(err)
 	}

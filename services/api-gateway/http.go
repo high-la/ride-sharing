@@ -13,9 +13,11 @@ func handleTripPreview(w http.ResponseWriter, r *http.Request) {
 
 	var reqBody previewTripRequest
 
-	err := json.NewDecoder(r.Body).Decode(&reqBody)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&reqBody)
 	if err != nil {
-		http.Error(w, "failed to parse JSON data", http.StatusBadRequest)
+		http.Error(w, "failed to parse JSON data api gateway", http.StatusBadRequest)
 		return
 	}
 
