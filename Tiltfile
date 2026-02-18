@@ -43,8 +43,9 @@ k8s_resource('api-gateway', port_forwards=8081,
 ### End of API Gateway ###
 
 
-
+# --------------------------------------------------------
 ### Trip Service ###
+# --------------------------------------------------------
 
 trip_compile_cmd = 'CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o build/trip-service ./services/trip-service/cmd/main.go'
 if os.name == 'nt':
@@ -73,13 +74,32 @@ docker_build_with_restart(
 k8s_yaml('./infra/development/k8s/trip-service-deployment.yaml')
 k8s_resource('trip-service', resource_deps=['trip-service-compile'], labels="services")
 
+
 ### End of Trip Service ###
+
+# 
+# 
+# 
+# 
+# --------------------------------------------------------
 ### Web Frontend ###
+# --------------------------------------------------------
 
 docker_build(
   'ride-sharing/web',
   '.',
   dockerfile='./infra/development/docker/web.Dockerfile',
+
+  live_update=[
+        # Sync the web source code into the container
+        sync('./web', '/app'),
+
+        # Re-run npm build only if package.json changes
+        run('npm ci --prefer-offline --no-audit --no-fund', trigger='./web/package*.json'),
+
+        # Optional: rebuild if you have other critical build steps
+        run('npm run build', trigger='./web/**/*.{js,ts,tsx,css,scss,html}')
+    ]
 )
 
 k8s_yaml('./infra/development/k8s/web-deployment.yaml')
