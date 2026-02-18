@@ -12,12 +12,25 @@ var (
 )
 
 func main() {
-	log.Println("Starting API Gateway")
+	log.Println("Starting API Gateway!")
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	// Create a new HTTP request multiplexer (mux) to route incoming requests to handlers.
+	// Using a custom mux is preferred over http.DefaultServeMux for better control and testing.
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("Hello from API Gateway"))
 	})
 
-	http.ListenAndServe(httpAddr, nil)
+	//
+	server := &http.Server{
+		Addr:    httpAddr,
+		Handler: mux,
+	}
+
+	err := server.ListenAndServe()
+	if err != nil {
+		log.Printf("HTTP server error: %v", err)
+	}
 }
