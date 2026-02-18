@@ -1,36 +1,35 @@
 package main
 
 import (
-	"context"
 	"log"
-	"time"
+	"net/http"
 
-	"github.com/high-la/ride-sharing/services/trip-service/internal/domain"
+	h "github.com/high-la/ride-sharing/services/trip-service/internal/infrastructure/http"
 	"github.com/high-la/ride-sharing/services/trip-service/internal/infrastructure/repository"
 	"github.com/high-la/ride-sharing/services/trip-service/internal/service"
 )
 
 func main() {
 
-	ctx := context.Background()
-
 	inmemRepo := repository.NewInmemRepositiry()
 
 	svc := service.NewService(inmemRepo)
 
-	fare := &domain.RideFareModel{
-		UserID: "42",
+	// .
+	mux := http.NewServeMux()
+
+	httpHandler := h.HttpHandler{Service: svc}
+
+	mux.HandleFunc("POST /preview", httpHandler.HandleTripPreview)
+
+	//
+	server := &http.Server{
+		Addr:    ":8083",
+		Handler: mux,
 	}
 
-	t, err := svc.CreateTrip(ctx, fare)
+	err := server.ListenAndServe()
 	if err != nil {
-		log.Println(err)
-	}
-
-	log.Println(t)
-
-	// keep the program running for now
-	for {
-		time.Sleep(time.Second)
+		log.Printf("HTTP server error: %v", err)
 	}
 }

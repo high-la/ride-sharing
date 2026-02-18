@@ -6,5 +6,5 @@ POST http://localhost:8081/trip/preview
 content-type: application/json
 
 {
-    "userID": "12"
+    "userID": "13"
 }
