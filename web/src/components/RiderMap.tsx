@@ -13,6 +13,7 @@ import { RoutingControl } from "./RoutingControl";
 import { API_URL } from '../constants';
 import { RiderTripOverview } from './RiderTripOverview';
 import { BackendEndpoints, HTTPTripPreviewRequestPayload, HTTPTripPreviewResponse, HTTPTripStartRequestPayload } from '../contracts';
+import { normalizeRoute } from "@/utils/geo"
 
 const userMarker = new L.Icon({
     iconUrl: "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ed/Map_pin_icon.svg/176px-Map_pin_icon.svg.png",
@@ -72,16 +73,24 @@ export default function RiderMap({ onRouteSelected }: RiderMapProps) {
             })
             console.log(data)
 
-            const parsedRoute = data.route.geometry[0].coordinates
-                .map((coord) => [coord.longitude, coord.latitude] as [number, number])
+const osrmRoute = data.route  // fixed: use 'route' instead of 'routes'
 
-            setTrip({
-                tripID: "",
-                route: parsedRoute,
-                rideFares: data.rideFares,
-                distance: data.route.distance,
-                duration: data.route.duration,
-            })
+if (!osrmRoute) return
+
+const parsedRoute = normalizeRoute(
+  osrmRoute.geometry.coordinates
+)
+
+setTrip({
+  tripID: "",
+  route: parsedRoute,
+  rideFares: data.rideFares,
+  distance: osrmRoute.distance,
+  duration: osrmRoute.duration,
+})
+
+  
+
 
             // Call onRouteSelected with the route distance
             onRouteSelected?.(data.route.distance)

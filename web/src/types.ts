@@ -20,11 +20,12 @@ export interface Coordinate {
 
 export interface Route {
     geometry: {
-        coordinates: Coordinate[]
-    }[],
-    duration: number,
-    distance: number,
+        coordinates: [number, number][];
+    };
+    duration: number;
+    distance: number;
 }
+
 
 export enum CarPackageSlug {
     SEDAN = "sedan",

@@ -12,6 +12,8 @@ import * as Geohash from 'ngeohash';
 import { RoutingControl } from "./RoutingControl";
 import { DriverCard } from "./DriverCard";
 import { TripEvents } from "../contracts";
+import { normalizeRoute } from "@/utils/geo"
+
 
 const START_LOCATION: Coordinate = {
   latitude: 37.7749,
@@ -105,19 +107,20 @@ export const DriverMap = ({ packageSlug }: { packageSlug: CarPackageSlug }) => {
     resetTripStatus()
   }
 
-  const parsedRoute = useMemo(() =>
-    requestedTrip?.route?.geometry[0]?.coordinates
-      .map((coord) => [coord?.longitude, coord?.latitude] as [number, number])
-    , [requestedTrip])
 
-  // destination is the last coordinate in the route
-  const destination = useMemo(() =>
-    requestedTrip?.route?.geometry[0]?.coordinates[requestedTrip?.route?.geometry[0]?.coordinates?.length - 1]
-    , [requestedTrip])
-  // start location is the first coordinate in the route
-  const startLocation = useMemo(() =>
-    requestedTrip?.route?.geometry[0]?.coordinates[0]
-    , [requestedTrip])
+const coordinates = requestedTrip?.route?.geometry?.coordinates
+
+const parsedRoute = useMemo(() =>
+  coordinates ? normalizeRoute(coordinates) : undefined
+, [coordinates])
+
+const startLocation = useMemo(() =>
+  parsedRoute?.[0]
+, [parsedRoute])
+
+const destination = useMemo(() =>
+  parsedRoute?.[parsedRoute.length - 1]
+, [parsedRoute])
 
 
   if (error) {
@@ -150,17 +153,14 @@ export const DriverMap = ({ packageSlug }: { packageSlug: CarPackageSlug }) => {
             </Popup>
           </Marker>
 
-          {startLocation && (
-            <Marker position={[startLocation.longitude, startLocation.latitude]} icon={startLocationMarker}>
-              <Popup>Start Location</Popup>
-            </Marker>
-          )}
+{startLocation && (
+  <Marker position={startLocation} icon={startLocationMarker} />
+)}
 
-          {destination && (
-            <Marker position={[destination.longitude, destination.latitude]} icon={destinationMarker}>
-              <Popup>Destination</Popup>
-            </Marker>
-          )}
+{destination && (
+  <Marker position={destination} icon={destinationMarker} />
+)}
+
 
           {parsedRoute && (
             <RoutingControl route={parsedRoute} />
