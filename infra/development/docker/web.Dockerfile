@@ -5,14 +5,19 @@ FROM node:20-alpine AS deps
 
 WORKDIR /app
 
-# Prevent DNS / registry weirdness
-RUN npm config set registry https://registry.npmjs.org/
+# Increase npm network stability
+RUN npm config set fetch-retries 5 \
+ && npm config set fetch-retry-factor 2 \
+ && npm config set fetch-retry-mintimeout 20000 \
+ && npm config set fetch-retry-maxtimeout 120000 \
+ && npm config set registry https://registry.npmjs.org/
 
-# Copy only package files first (better cache)
-COPY web/package.json web/package-lock.json* ./
+# Copy only package files (better Docker caching)
+COPY web/package.json web/package-lock.json ./
 
-# Install dependencies
-RUN npm ci --no-audit --no-fund
+# Install dependencies with cache mount
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --no-audit --no-fund
 
 
 # ----------------------------------------
@@ -22,13 +27,16 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy installed dependencies
+# Reuse installed node_modules
 COPY --from=deps /app/node_modules ./node_modules
 
-# Copy rest of app
+# Copy application source
 COPY web ./
 
-# Build Next.js app
+# Disable telemetry
+ENV NEXT_TELEMETRY_DISABLED=1
+
+# Build Next.js production bundle
 RUN npm run build
 
 
@@ -40,8 +48,9 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
 
-# Copy built app
+# Copy built output
 COPY --from=builder /app ./
 
 EXPOSE 3000

@@ -5,7 +5,6 @@ export interface Trip {
     selectedFare: RouteFare;
     route: Route;
     driver?: Driver;
-    trip: Trip;
 }
 
 export interface RequestRideProps {
@@ -20,12 +19,11 @@ export interface Coordinate {
 
 export interface Route {
     geometry: {
-        coordinates: [number, number][];
-    };
-    duration: number;
-    distance: number;
+        coordinates: Coordinate[]
+    }[],
+    duration: number,
+    distance: number,
 }
-
 
 export enum CarPackageSlug {
     SEDAN = "sedan",

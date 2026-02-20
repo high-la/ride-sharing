@@ -30,7 +30,7 @@ message Coordinate {
 }
 
 message Geometry {
-  repeated Coordinate coordinate = 1;
+  repeated Coordinate coordinates = 1;
 }
 
 message Route {

@@ -5,11 +5,6 @@ type Coordinate struct {
 	Longitude float64 `json:"longitude"`
 }
 
-type OsrmApiResponse struct {
-	Code   string  `json:"code"`
-	Routes []Route `json:"routes"`
-}
-
 type Route struct {
 	Distance float64  `json:"distance"`
 	Duration float64  `json:"duration"`

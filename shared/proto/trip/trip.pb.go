@@ -195,7 +195,7 @@ func (x *Coordinate) GetLongitude() float64 {
 
 type Geometry struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Coordinate    []*Coordinate          `protobuf:"bytes,1,rep,name=coordinate,proto3" json:"coordinate,omitempty"`
+	Coordinates   []*Coordinate          `protobuf:"bytes,1,rep,name=coordinates,proto3" json:"coordinates,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -230,9 +230,9 @@ func (*Geometry) Descriptor() ([]byte, []int) {
 	return file_trip_proto_rawDescGZIP(), []int{3}
 }
 
-func (x *Geometry) GetCoordinate() []*Coordinate {
+func (x *Geometry) GetCoordinates() []*Coordinate {
 	if x != nil {
-		return x.Coordinate
+		return x.Coordinates
 	}
 	return nil
 }
@@ -382,11 +382,9 @@ const file_trip_proto_rawDesc = "" +
 	"\n" +
 	"Coordinate\x12\x1a\n" +
 	"\blatitude\x18\x01 \x01(\x01R\blatitude\x12\x1c\n" +
-	"\tlongitude\x18\x02 \x01(\x01R\tlongitude\"<\n" +
-	"\bGeometry\x120\n" +
-	"\n" +
-	"coordinate\x18\x01 \x03(\v2\x10.trip.CoordinateR\n" +
-	"coordinate\"k\n" +
+	"\tlongitude\x18\x02 \x01(\x01R\tlongitude\">\n" +
+	"\bGeometry\x122\n" +
+	"\vcoordinates\x18\x01 \x03(\v2\x10.trip.CoordinateR\vcoordinates\"k\n" +
 	"\x05Route\x12*\n" +
 	"\bgeometry\x18\x01 \x03(\v2\x0e.trip.GeometryR\bgeometry\x12\x1a\n" +
 	"\bdistance\x18\x02 \x01(\x01R\bdistance\x12\x1a\n" +
@@ -425,7 +423,7 @@ var file_trip_proto_depIdxs = []int32{
 	2, // 1: trip.PreviewTripRequest.endLocation:type_name -> trip.Coordinate
 	4, // 2: trip.PreviewTripResponse.route:type_name -> trip.Route
 	5, // 3: trip.PreviewTripResponse.rideFares:type_name -> trip.RideFare
-	2, // 4: trip.Geometry.coordinate:type_name -> trip.Coordinate
+	2, // 4: trip.Geometry.coordinates:type_name -> trip.Coordinate
 	3, // 5: trip.Route.geometry:type_name -> trip.Geometry
 	0, // 6: trip.TripService.PreviewTrip:input_type -> trip.PreviewTripRequest
 	1, // 7: trip.TripService.PreviewTrip:output_type -> trip.PreviewTripResponse
