@@ -23,15 +23,23 @@ func main() {
 	// Using a custom mux is preferred over http.DefaultServeMux for better control and testing.
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("POST /trip/preview", enableCORS(handleTripPreview))
-	mux.HandleFunc("POST /trip/start", enableCORS(handleTripPreview))
+	// mux.HandleFunc("POST /trip/preview", enableCORS(handleTripPreview))
+	// mux.HandleFunc("POST /trip/start", enableCORS(handleTripStart))
+
+	// // WebSockets (no CORS needed normally)
+	// mux.HandleFunc("/ws/drivers", handleDriversWebSocket)
+	// mux.HandleFunc("/ws/riders", handleRidersWebSocket)
+
+	mux.HandleFunc("POST /trip/preview", handleTripPreview)
+	mux.HandleFunc("POST /trip/start", handleTripStart)
 	mux.HandleFunc("/ws/drivers", handleDriversWebSocket)
 	mux.HandleFunc("/ws/riders", handleRidersWebSocket)
 
 	//
 	server := &http.Server{
-		Addr:    httpAddr,
-		Handler: mux,
+		Addr: httpAddr,
+		// Handler: mux,
+		Handler: enableCORS(mux),
 	}
 
 	serverErrors := make(chan error, 1)

@@ -104,6 +104,12 @@ export default function RiderMap({ onRouteSelected }: RiderMapProps) {
     }
 
     const handleStartTrip = async (fare: RouteFare) => {
+
+        if (!fare?.id || !userID) {
+        alert("Missing required data fareID, UserID")
+        return
+    }
+
         const payload = {
             rideFareID: fare.id,
             userID: userID,
@@ -116,10 +122,22 @@ export default function RiderMap({ onRouteSelected }: RiderMapProps) {
 
         const response = await fetch(`${API_URL}${BackendEndpoints.START_TRIP}`, {
             method: 'POST',
+            headers: {
+                "Content-Type": "application/json",
+            },
             body: JSON.stringify(payload),
         })
+    
+            if (!response.ok) {
+                const text = await response.text()
+                console.error("Server error:", text)
+                throw new Error(text)
+            }
+    
+            
         const data = await response.json() as HTTPTripStartResponse
 
+            
         if (response.ok && trip) {
             setTrip((prev) => ({
                 ...prev,

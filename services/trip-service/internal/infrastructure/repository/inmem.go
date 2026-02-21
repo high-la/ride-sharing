@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/high-la/ride-sharing/services/trip-service/internal/domain"
 )
@@ -17,6 +18,16 @@ func NewInmemRepositiry() *inmemRepository {
 		trips:     make(map[string]*domain.TripModel),     // create empty map
 		rideFares: make(map[string]*domain.RideFareModel), // create empty map
 	}
+}
+
+func (r *inmemRepository) GetRideFareByID(ctx context.Context, id string) (*domain.RideFareModel, error) {
+
+	fare, exist := r.rideFares[id]
+	if !exist {
+		return nil, fmt.Errorf("fare does not exist with ID: %v", id)
+	}
+
+	return fare, nil
 }
 
 func (r *inmemRepository) CreateTrip(ctx context.Context, trip *domain.TripModel) (*domain.TripModel, error) {
