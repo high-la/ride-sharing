@@ -38,8 +38,8 @@ export default function RiderMap({ onRouteSelected }: RiderMapProps) {
     const userID = useMemo(() => crypto.randomUUID(), [])
 
     const location = {
-        latitude: 37.7749,
-        longitude: -122.4194,
+        latitude: 9.0361,
+        longitude: 38.7523,
     };
 
     const {
