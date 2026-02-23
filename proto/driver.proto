@@ -30,11 +30,10 @@ message Driver {
     string carPlate = 4; 
     string geohash = 5;
     string packageSlug = 6;
-    string location = 7;
+    Location location = 7;
 }
 
 message Location {
-  
-    double latitude = 1;
-    double longitude = 2;
+  double latitude = 1;
+  double longitude = 2;
 }
