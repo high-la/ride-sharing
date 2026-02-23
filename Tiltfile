@@ -6,14 +6,29 @@ load('ext://restart_process', 'docker_build_with_restart')
 # --------------------------------------------------------
 
 # Uncomment to use secrets
-# k8s_yaml('./infra/development/k8s/secrets.yaml')
-
-
+k8s_yaml('./infra/development/k8s/secrets.yaml')
 k8s_yaml('./infra/development/k8s/app-config.yaml')
+
+
 
 ### End of k8s Config ###
 
 
+# 
+# 
+# 
+# 
+# --------------------------------------------------------
+### RabbitMQ ###
+# --------------------------------------------------------
+k8s_yaml('./infra/development/k8s/rabbitmq-deployment.yaml')
+k8s_resource('rabbitmq', port_forwards=['5672', '15672'], labels='tooling')
+### End RabbitMQ ###
+
+# 
+# 
+# 
+# 
 # --------------------------------------------------------
 ### API Gateway ###
 # --------------------------------------------------------
@@ -49,6 +64,10 @@ k8s_resource('api-gateway', port_forwards=8081,
 ### End of API Gateway ###
 
 
+# 
+# 
+# 
+# 
 # --------------------------------------------------------
 ### Trip Service ###
 # --------------------------------------------------------
