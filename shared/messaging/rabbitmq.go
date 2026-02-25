@@ -5,7 +5,12 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/high-la/ride-sharing/shared/contracts"
 	amqp "github.com/rabbitmq/amqp091-go"
+)
+
+const (
+	TripExchange = "trip"
 )
 
 type RabbitMQ struct {
@@ -46,6 +51,18 @@ type MessageHandler func(context.Context, amqp.Delivery) error
 
 func (r *RabbitMQ) ConsumeMessages(queueName string, handler MessageHandler) error {
 
+	// Set prefetch count to 1 for fair dispatch
+	// This tells RabbitMQ not to give more than one message to a service at a time.
+	// The worker will only get the next message after it has acknowledge the previous one
+	err := r.Channel.Qos(
+		1,     // prefetchCount: Limit to 1 unackmowledged message per consumer
+		0,     // prefetchSize: No specific limit on message size
+		false, // global: Apply prefetchCount to each consumer individually
+	)
+	if err != nil {
+		return fmt.Errorf("failed to set QoS: %v", err)
+	}
+
 	msgs, err := r.Channel.Consume(
 		queueName, // queue
 		"",        // consumer
@@ -77,12 +94,14 @@ func (r *RabbitMQ) ConsumeMessages(queueName string, handler MessageHandler) err
 
 func (r *RabbitMQ) PublishMessage(ctx context.Context, routingKey string, message string) error {
 
+	log.Printf("Publishing message with routing key: %s", routingKey)
+
 	return r.Channel.PublishWithContext(ctx,
 
-		"",      //exchange
-		"hello", //routing key
-		false,   //mandatory
-		false,   // immediate
+		TripExchange, //exchange
+		routingKey,   //routing key
+		false,        //mandatory
+		false,        // immediate
 		amqp.Publishing{
 			ContentType:  "text/plain",
 			Body:         []byte(message),
@@ -92,18 +111,64 @@ func (r *RabbitMQ) PublishMessage(ctx context.Context, routingKey string, messag
 
 func (r *RabbitMQ) setupExchangesAndQueues() error {
 
-	_, err := r.Channel.QueueDeclare(
+	err := r.Channel.ExchangeDeclare(
 
-		"hello", // name
-		true,    // durable
-		false,   // delete when unused
-		false,   // exclusive
-		false,   // no wait
-		nil,     // arguments
+		TripExchange, //name
+		"topic",      // type
+		true,         //durable
+		false,        //auto-deleted
+		false,        //internal
+		false,        //no-wait
+		nil,          //arguments
+	)
+	if err != nil {
+		return fmt.Errorf("failed to declare exchange: %s: %v", TripExchange, err)
+	}
+
+	err = r.declareAndBindQueue(
+		FindAvailableDriversQueue,
+		[]string{
+			contracts.TripEventCreated,
+			contracts.TripEventDriverNotInterested,
+		},
+		TripExchange,
+	)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *RabbitMQ) declareAndBindQueue(queueName string, messageTypes []string, exchange string) error {
+
+	q, err := r.Channel.QueueDeclare(
+
+		queueName, // name
+		true,      // durable
+		false,     // delete when unused
+		false,     // exclusive
+		false,     // no wait
+		nil,       // arguments
 	)
 
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	for _, msg := range messageTypes {
+
+		err := r.Channel.QueueBind(
+			q.Name,   // queue name
+			msg,      // routing key
+			exchange, // exchange
+			false,
+			nil,
+		)
+
+		if err != nil {
+			return fmt.Errorf("failed to bind queue to %s: %v", queueName, err)
+		}
 	}
 
 	return nil
