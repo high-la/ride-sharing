@@ -10,10 +10,12 @@ import (
 	"time"
 
 	"github.com/high-la/ride-sharing/shared/env"
+	"github.com/high-la/ride-sharing/shared/messaging"
 )
 
 var (
-	httpAddr = env.GetString("HTTP_ADDR", ":8081")
+	httpAddr    = env.GetString("HTTP_ADDR", ":8081")
+	rabbitMqURI = env.GetString("RABBITMQ_URI", "amqp://guest:guest@rabbitmq:5672/")
 )
 
 func main() {
@@ -22,6 +24,15 @@ func main() {
 	// Create a new HTTP request multiplexer (mux) to route incoming requests to handlers.
 	// Using a custom mux is preferred over http.DefaultServeMux for better control and testing.
 	mux := http.NewServeMux()
+
+	// RabbitMQ connection
+	rabbitmq, err := messaging.NewRabbitMQ(rabbitMqURI)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rabbitmq.Close()
+
+	log.Println("starting RabbitMQ connection")
 
 	// mux.HandleFunc("POST /trip/preview", enableCORS(handleTripPreview))
 	// mux.HandleFunc("POST /trip/start", enableCORS(handleTripStart))
@@ -32,8 +43,12 @@ func main() {
 
 	mux.HandleFunc("POST /trip/preview", handleTripPreview)
 	mux.HandleFunc("POST /trip/start", handleTripStart)
-	mux.HandleFunc("/ws/drivers", handleDriversWebSocket)
-	mux.HandleFunc("/ws/riders", handleRidersWebSocket)
+	mux.HandleFunc("/ws/drivers", func(w http.ResponseWriter, r *http.Request) {
+		handleDriversWebSocket(w, r, rabbitmq)
+	})
+	mux.HandleFunc("/ws/riders", func(w http.ResponseWriter, r *http.Request) {
+		handleRidersWebSocket(w, r, rabbitmq)
+	})
 
 	//
 	server := &http.Server{

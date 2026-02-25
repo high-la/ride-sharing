@@ -143,6 +143,18 @@ func (r *RabbitMQ) setupExchangesAndQueues() error {
 		return err
 	}
 
+	err = r.declareAndBindQueue(
+		DriverCmdTripRequestQueue,
+		[]string{
+			contracts.TripEventCreated,
+			contracts.DriverCmdTripRequest,
+		},
+		TripExchange,
+	)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
