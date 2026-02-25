@@ -4,22 +4,19 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/gorilla/websocket"
 	"github.com/high-la/ride-sharing/services/api-gateway/grpc_clients"
 	"github.com/high-la/ride-sharing/shared/contracts"
+	"github.com/high-la/ride-sharing/shared/messaging"
 	"github.com/high-la/ride-sharing/shared/proto/driver"
 )
 
-var upgrader = websocket.Upgrader{
-
-	CheckOrigin: func(r *http.Request) bool {
-		return true
-	},
-}
+var (
+	connManager = messaging.NewConnectionManager()
+)
 
 func handleRidersWebSocket(w http.ResponseWriter, r *http.Request) {
 
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := connManager.Upgrade(w, r)
 	if err != nil {
 		log.Printf("websocket upgrade failed: %v", err)
 		return
@@ -32,6 +29,10 @@ func handleRidersWebSocket(w http.ResponseWriter, r *http.Request) {
 		log.Println("no user ID provided")
 		return
 	}
+
+	// Add connection to manager
+	connManager.Add(userID, conn)
+	defer connManager.Remove(userID)
 
 	// read message
 	for {
@@ -49,7 +50,7 @@ func handleRidersWebSocket(w http.ResponseWriter, r *http.Request) {
 
 func handleDriversWebSocket(w http.ResponseWriter, r *http.Request) {
 
-	conn, err := upgrader.Upgrade(w, r, nil)
+	conn, err := connManager.Upgrade(w, r)
 	if err != nil {
 		log.Printf("websocket upgrade failed: %v", err)
 		return
@@ -69,6 +70,9 @@ func handleDriversWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Add connection to manager
+	connManager.Add(userID, conn)
+
 	driverService, err := grpc_clients.NewDriverServiceClient()
 	if err != nil {
 		log.Fatal(err)
@@ -78,6 +82,8 @@ func handleDriversWebSocket(w http.ResponseWriter, r *http.Request) {
 
 	// Closing connections
 	defer func() {
+		connManager.Remove(userID)
+
 		driverService.Client.UnRegisterDriver(ctx, &driver.RegisterDriverRequest{
 			DriverID:    userID,
 			PackageSlug: packageSlug,
@@ -97,13 +103,10 @@ func handleDriversWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// .
-	msg := contracts.WSMessage{
-		Type: "driver.cmd.register",
+	err = connManager.SendMessage(userID, contracts.WSMessage{
+		Type: contracts.DriverCmdRegister,
 		Data: driverData.Driver,
-	}
-
-	err = conn.WriteJSON(msg)
+	})
 	if err != nil {
 		log.Printf("error sending message: %v", err)
 		return
