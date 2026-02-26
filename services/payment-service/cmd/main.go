@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/high-la/ride-sharing/services/payment-service/infrastructure/stripe"
+	"github.com/high-la/ride-sharing/services/payment-service/internal/events"
 	"github.com/high-la/ride-sharing/services/payment-service/internal/service"
 	"github.com/high-la/ride-sharing/services/payment-service/pkg/types"
 	"github.com/high-la/ride-sharing/shared/env"
@@ -50,8 +51,6 @@ func main() {
 	// Service
 	svc := service.NewPaymentService(paymentProcessor)
 
-	log.Panicln(svc)
-
 	// RabbitMQ connection
 	rabbitmq, err := messaging.NewRabbitMQ(rabbitMqURI)
 	if err != nil {
@@ -60,6 +59,10 @@ func main() {
 	defer rabbitmq.Close()
 
 	log.Println("Starting RabbitMQ connection")
+
+	// Trip Consumer
+	tripConsumer := events.NewTripConsumer(rabbitmq, svc)
+	go tripConsumer.Listen()
 
 	// Wait for shutdown signal
 	<-ctx.Done()
