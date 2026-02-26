@@ -36,10 +36,11 @@ export default function RiderMap({ onRouteSelected }: RiderMapProps) {
     const [destination, setDestination] = useState<[number, number] | null>(null)
     const mapRef = useRef<L.Map>(null)
     const userID = useMemo(() => crypto.randomUUID(), [])
+    const debounceTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     const location = {
-        latitude: 9.0361,
-        longitude: 38.7523,
+        latitude: 37.7749,
+        longitude: -122.4194,
     };
 
     const {
@@ -58,27 +59,33 @@ export default function RiderMap({ onRouteSelected }: RiderMapProps) {
             return
         }
 
-        setDestination([e.latlng.lat, e.latlng.lng])
+        if (debounceTimeoutRef.current) {
+            clearTimeout(debounceTimeoutRef.current);
+        }
 
-        const data = await requestRidePreview({
-            pickup: [location.latitude, location.longitude],
-            destination: [e.latlng.lat, e.latlng.lng],
-        })
-        console.log(data)
+        debounceTimeoutRef.current = setTimeout(async () => {
+            setDestination([e.latlng.lat, e.latlng.lng])
 
-        const parsedRoute = data.route.geometry[0].coordinates
-            .map((coord) => [coord.longitude, coord.latitude] as [number, number])
+            const data = await requestRidePreview({
+                pickup: [location.latitude, location.longitude],
+                destination: [e.latlng.lat, e.latlng.lng],
+            })
+            console.log(data)
 
-        setTrip({
-            tripID: "",
-            route: parsedRoute,
-            rideFares: data.rideFares,
-            distance: data.route.distance,
-            duration: data.route.duration,
-        })
+            const parsedRoute = data.route.geometry[0].coordinates
+                .map((coord) => [coord.longitude, coord.latitude] as [number, number])
 
-        // Call onRouteSelected with the route distance
-        onRouteSelected?.(data.route.distance)
+            setTrip({
+                tripID: "",
+                route: parsedRoute,
+                rideFares: data.rideFares,
+                distance: data.route.distance,
+                duration: data.route.duration,
+            })
+
+            // Call onRouteSelected with the route distance
+            onRouteSelected?.(data.route.distance)
+        }, 500);
     }
 
     const requestRidePreview = async (props: RequestRideProps): Promise<HTTPTripPreviewResponse> => {
@@ -104,12 +111,6 @@ export default function RiderMap({ onRouteSelected }: RiderMapProps) {
     }
 
     const handleStartTrip = async (fare: RouteFare) => {
-
-        if (!fare?.id || !userID) {
-        alert("Missing required data fareID, UserID")
-        return
-    }
-
         const payload = {
             rideFareID: fare.id,
             userID: userID,
@@ -122,22 +123,10 @@ export default function RiderMap({ onRouteSelected }: RiderMapProps) {
 
         const response = await fetch(`${API_URL}${BackendEndpoints.START_TRIP}`, {
             method: 'POST',
-            headers: {
-                "Content-Type": "application/json",
-            },
             body: JSON.stringify(payload),
         })
-    
-            if (!response.ok) {
-                const text = await response.text()
-                console.error("Server error:", text)
-                throw new Error(text)
-            }
-    
-            
         const data = await response.json() as HTTPTripStartResponse
 
-            
         if (response.ok && trip) {
             setTrip((prev) => ({
                 ...prev,
@@ -193,7 +182,7 @@ export default function RiderMap({ onRouteSelected }: RiderMapProps) {
                     {drivers.map((driver) => (
                         <Marker
                             key={driver.id}
-                            position={[driver.location.latitude, driver.location.longitude]}
+                            position={[driver?.location?.latitude, driver?.location?.longitude]}
                             icon={driverMarker}
                         >
                             <Popup>
