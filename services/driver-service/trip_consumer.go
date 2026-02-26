@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"math/rand"
 
 	"github.com/high-la/ride-sharing/shared/contracts"
 	"github.com/high-la/ride-sharing/shared/messaging"
@@ -16,7 +17,6 @@ type tripConsumer struct {
 }
 
 func NewTripConsumer(rabbitmq *messaging.RabbitMQ, service *Service) *tripConsumer {
-
 	return &tripConsumer{
 		rabbitmq: rabbitmq,
 		service:  service,
@@ -24,9 +24,7 @@ func NewTripConsumer(rabbitmq *messaging.RabbitMQ, service *Service) *tripConsum
 }
 
 func (c *tripConsumer) Listen() error {
-
 	return c.rabbitmq.ConsumeMessages(messaging.FindAvailableDriversQueue, func(ctx context.Context, msg amqp091.Delivery) error {
-
 		var tripEvent contracts.AmqpMessage
 		if err := json.Unmarshal(msg.Body, &tripEvent); err != nil {
 			log.Printf("Failed to unmarshal message: %v", err)
@@ -35,7 +33,7 @@ func (c *tripConsumer) Listen() error {
 
 		var payload messaging.TripEventData
 		if err := json.Unmarshal(tripEvent.Data, &payload); err != nil {
-			log.Printf("failed to unmarshal message: %v", err)
+			log.Printf("Failed to unmarshal message: %v", err)
 			return err
 		}
 
@@ -53,40 +51,38 @@ func (c *tripConsumer) Listen() error {
 }
 
 func (c *tripConsumer) handleFindAndNotifyDrivers(ctx context.Context, payload messaging.TripEventData) error {
-
 	suitableIDs := c.service.FindAvailableDrivers(payload.Trip.SelectedFare.PackageSlug)
 
-	log.Printf("found suitable drivers %v", len(suitableIDs))
+	log.Printf("Found suitable drivers %v", len(suitableIDs))
 
 	if len(suitableIDs) == 0 {
-		// Notify the drivers that no drivers are available
-		err := c.rabbitmq.PublishMessage(ctx, contracts.TripEventNoDriversFound,
-			contracts.AmqpMessage{
-				OwnerID: payload.Trip.UserID,
-			})
-		if err != nil {
-			log.Printf("failed to publish message to exchange: %v", err)
+		// Notify the driver that no drivers are available
+		if err := c.rabbitmq.PublishMessage(ctx, contracts.TripEventNoDriversFound, contracts.AmqpMessage{
+			OwnerID: payload.Trip.UserID,
+		}); err != nil {
+			log.Printf("Failed to publish message to exchange: %v", err)
 			return err
 		}
 
 		return nil
 	}
 
-	suitableDriverID := suitableIDs[0]
+	// Get a random index from the matching drivers
+	randomIndex := rand.Intn(len(suitableIDs))
+
+	suitableDriverID := suitableIDs[randomIndex]
 
 	marshalledEvent, err := json.Marshal(payload)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	// Notify the driver about a potential trip
-	err = c.rabbitmq.PublishMessage(ctx, contracts.DriverCmdTripRequest,
-		contracts.AmqpMessage{
-			OwnerID: suitableDriverID,
-			Data:    marshalledEvent,
-		})
-	if err != nil {
-		log.Printf("failed to publish message to exchange: %v", err)
+	if err := c.rabbitmq.PublishMessage(ctx, contracts.DriverCmdTripRequest, contracts.AmqpMessage{
+		OwnerID: suitableDriverID,
+		Data:    marshalledEvent,
+	}); err != nil {
+		log.Printf("Failed to publish message to exchange: %v", err)
 		return err
 	}
 
