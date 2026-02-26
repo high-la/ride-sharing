@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/high-la/ride-sharing/services/trip-service/internal/domain"
 	tripTypes "github.com/high-la/ride-sharing/services/trip-service/pkg/types"
+	"github.com/high-la/ride-sharing/shared/env"
+	pbd "github.com/high-la/ride-sharing/shared/proto/driver"
 	"github.com/high-la/ride-sharing/shared/proto/trip"
 	"github.com/high-la/ride-sharing/shared/types"
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -19,14 +22,12 @@ type service struct {
 }
 
 func NewService(repo domain.TripRepository) *service {
-
 	return &service{
 		repo: repo,
 	}
 }
 
 func (s *service) CreateTrip(ctx context.Context, fare *domain.RideFareModel) (*domain.TripModel, error) {
-
 	t := &domain.TripModel{
 		ID:       primitive.NewObjectID(),
 		UserID:   fare.UserID,
@@ -38,33 +39,60 @@ func (s *service) CreateTrip(ctx context.Context, fare *domain.RideFareModel) (*
 	return s.repo.CreateTrip(ctx, t)
 }
 
-func (s *service) GetRoute(ctx context.Context, pickup, destination *types.Coordinate) (*tripTypes.OsrmApiResponse, error) {
+func (s *service) GetRoute(ctx context.Context, pickup, destination *types.Coordinate, useOSRMApi bool) (*tripTypes.OsrmApiResponse, error) {
+	if !useOSRMApi {
+		// Return a simple mock response in case we don't want to rely on an external API
+		return &tripTypes.OsrmApiResponse{
+			Routes: []struct {
+				Distance float64 `json:"distance"`
+				Duration float64 `json:"duration"`
+				Geometry struct {
+					Coordinates [][]float64 `json:"coordinates"`
+				} `json:"geometry"`
+			}{
+				{
+					Distance: 5.0, // 5km
+					Duration: 600, // 10 minutes
+					Geometry: struct {
+						Coordinates [][]float64 `json:"coordinates"`
+					}{
+						Coordinates: [][]float64{
+							{pickup.Latitude, pickup.Longitude},
+							{destination.Latitude, destination.Longitude},
+						},
+					},
+				},
+			},
+		}, nil
+	}
+
+	// or use our self hosted API (check the course lesson: "Preparing for External API Failures")
+	baseURL := env.GetString("OSRM_API", "http://router.project-osrm.org")
 
 	url := fmt.Sprintf(
-		"http://router.project-osrm.org/route/v1/driving/%f,%f;%f,%f?overview=full&geometries=geojson",
+		"%s/route/v1/driving/%f,%f;%f,%f?overview=full&geometries=geojson",
+		baseURL,
 		pickup.Longitude, pickup.Latitude,
 		destination.Longitude, destination.Latitude,
 	)
+
+	log.Printf("Started Fetching from OSRM API: URL: %s", url)
 
 	resp, err := http.Get(url)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch route from OSRM API: %v", err)
 	}
-
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read the response: %v", err)
 	}
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("osrm returned status %d", resp.StatusCode)
-	}
+
+	log.Printf("Got response from OSRM API %s", string(body))
 
 	var routeResp tripTypes.OsrmApiResponse
-
-	err = json.Unmarshal(body, &routeResp)
-	if err != nil {
+	if err := json.Unmarshal(body, &routeResp); err != nil {
 		return nil, fmt.Errorf("failed to parse response: %v", err)
 	}
 
@@ -72,13 +100,10 @@ func (s *service) GetRoute(ctx context.Context, pickup, destination *types.Coord
 }
 
 func (s *service) EstimatePackagesPriceWithRoute(route *tripTypes.OsrmApiResponse) []*domain.RideFareModel {
-
 	baseFares := getBaseFares()
-
 	estimatedFares := make([]*domain.RideFareModel, len(baseFares))
 
 	for i, f := range baseFares {
-
 		estimatedFares[i] = estimateFareRoute(f, route)
 	}
 
@@ -86,7 +111,6 @@ func (s *service) EstimatePackagesPriceWithRoute(route *tripTypes.OsrmApiRespons
 }
 
 func (s *service) GenerateTripFares(ctx context.Context, rideFares []*domain.RideFareModel, userID string, route *tripTypes.OsrmApiResponse) ([]*domain.RideFareModel, error) {
-
 	fares := make([]*domain.RideFareModel, len(rideFares))
 
 	for i, f := range rideFares {
@@ -100,9 +124,8 @@ func (s *service) GenerateTripFares(ctx context.Context, rideFares []*domain.Rid
 			Route:             route,
 		}
 
-		err := s.repo.SaveRideFare(ctx, fare)
-		if err != nil {
-			return nil, fmt.Errorf("failed to save trip fare %w", err)
+		if err := s.repo.SaveRideFare(ctx, fare); err != nil {
+			return nil, fmt.Errorf("failed to save trip fare: %w", err)
 		}
 
 		fares[i] = fare
@@ -112,7 +135,6 @@ func (s *service) GenerateTripFares(ctx context.Context, rideFares []*domain.Rid
 }
 
 func (s *service) GetAndValidateFare(ctx context.Context, fareID, userID string) (*domain.RideFareModel, error) {
-
 	fare, err := s.repo.GetRideFareByID(ctx, fareID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get trip fare: %w", err)
@@ -121,6 +143,8 @@ func (s *service) GetAndValidateFare(ctx context.Context, fareID, userID string)
 	if fare == nil {
 		return nil, fmt.Errorf("fare does not exist")
 	}
+
+	// User fare validation (user is owner of this fare?)
 	if userID != fare.UserID {
 		return nil, fmt.Errorf("fare does not belong to the user")
 	}
@@ -129,7 +153,6 @@ func (s *service) GetAndValidateFare(ctx context.Context, fareID, userID string)
 }
 
 func estimateFareRoute(f *domain.RideFareModel, route *tripTypes.OsrmApiResponse) *domain.RideFareModel {
-
 	pricingCfg := tripTypes.DefaultPricingConfig()
 	carPackagePrice := f.TotalPriceInCents
 
@@ -147,7 +170,6 @@ func estimateFareRoute(f *domain.RideFareModel, route *tripTypes.OsrmApiResponse
 }
 
 func getBaseFares() []*domain.RideFareModel {
-
 	return []*domain.RideFareModel{
 		{
 			PackageSlug:       "suv",
@@ -166,4 +188,12 @@ func getBaseFares() []*domain.RideFareModel {
 			TotalPriceInCents: 1000,
 		},
 	}
+}
+
+func (s *service) GetTripByID(ctx context.Context, id string) (*domain.TripModel, error) {
+	return s.repo.GetTripByID(ctx, id)
+}
+
+func (s *service) UpdateTrip(ctx context.Context, tripID string, status string, driver *pbd.Driver) error {
+	return s.repo.UpdateTrip(ctx, tripID, status, driver)
 }

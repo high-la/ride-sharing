@@ -20,23 +20,21 @@ import (
 var GrpcAddr = ":9093"
 
 func main() {
-
 	rabbitMqURI := env.GetString("RABBITMQ_URI", "amqp://guest:guest@rabbitmq:5672/")
 
-	inmemRepo := repository.NewInmemRepositiry()
+	inmemRepo := repository.NewInmemRepository()
 	svc := service.NewService(inmemRepo)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	go func() {
-		sigChannel := make(chan os.Signal, 1)
-		signal.Notify(sigChannel, os.Interrupt, syscall.SIGTERM)
-		<-sigChannel
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+		<-sigCh
 		cancel()
 	}()
 
-	//.
 	lis, err := net.Listen("tcp", GrpcAddr)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
@@ -49,27 +47,29 @@ func main() {
 	}
 	defer rabbitmq.Close()
 
-	log.Println("starting RabbitMQ connection")
+	log.Println("Starting RabbitMQ connection")
 
 	publisher := events.NewTripEventPublisher(rabbitmq)
+
+	// Start driver consumer
+	driverConsumer := events.NewDriverConsumer(rabbitmq, svc)
+	go driverConsumer.Listen()
 
 	// Starting the gRPC server
 	grpcServer := grpcserver.NewServer()
 	grpc.NewGRPCHandler(grpcServer, svc, publisher)
 
-	log.Printf("starting gRPC server Trip service on port %s", lis.Addr().String())
+	log.Printf("Starting gRPC server Trip service on port %s", lis.Addr().String())
 
 	go func() {
-
-		err := grpcServer.Serve(lis)
-		if err != nil {
+		if err := grpcServer.Serve(lis); err != nil {
 			log.Printf("failed to serve: %v", err)
 			cancel()
 		}
 	}()
 
-	// Wait for the shutdown signal
+	// wait for the shutdown signal
 	<-ctx.Done()
-	log.Println("shutting down the server...")
+	log.Println("Shutting down the server...")
 	grpcServer.GracefulStop()
 }
