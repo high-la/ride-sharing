@@ -14,19 +14,35 @@ import (
 	"github.com/high-la/ride-sharing/services/trip-service/internal/service"
 	"github.com/high-la/ride-sharing/shared/env"
 	"github.com/high-la/ride-sharing/shared/messaging"
+	"github.com/high-la/ride-sharing/shared/tracing"
 	grpcserver "google.golang.org/grpc"
 )
 
 var GrpcAddr = ":9093"
 
 func main() {
+
+	// Initialize Tracing
+	tracerCfg := tracing.Config{
+		ServiceName:    "trip-service",
+		Environment:    env.GetString("ENVIRONMENT", "development"),
+		JaegerEndpoint: env.GetString("JAEGER_ENDPOINT", "http://jaeger:14268/api/traces"),
+	}
+
+	sh, err := tracing.InitTracer(tracerCfg)
+	if err != nil {
+		log.Fatalf("Failed to initialize the tracer: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	defer sh(ctx)
+
 	rabbitMqURI := env.GetString("RABBITMQ_URI", "amqp://guest:guest@rabbitmq:5672/")
 
 	inmemRepo := repository.NewInmemRepository()
 	svc := service.NewService(inmemRepo)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	go func() {
 		sigCh := make(chan os.Signal, 1)
