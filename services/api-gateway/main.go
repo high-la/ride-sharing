@@ -11,6 +11,7 @@ import (
 
 	"github.com/high-la/ride-sharing/shared/env"
 	"github.com/high-la/ride-sharing/shared/messaging"
+	"github.com/high-la/ride-sharing/shared/tracing"
 )
 
 var (
@@ -19,10 +20,24 @@ var (
 )
 
 func main() {
-	log.Println("Starting API Gateway!")
+	log.Println("Starting API Gateway")
 
-	// Create a new HTTP request multiplexer (mux) to route incoming requests to handlers.
-	// Using a custom mux is preferred over http.DefaultServeMux for better control and testing.
+	// Initialize Tracing
+	tracerCfg := tracing.Config{
+		ServiceName:    "api-gateway",
+		Environment:    env.GetString("ENVIRONMENT", "development"),
+		JaegerEndpoint: env.GetString("JAEGER_ENDPOINT", "http://jaeger:14268/api/traces"),
+	}
+
+	sh, err := tracing.InitTracer(tracerCfg)
+	if err != nil {
+		log.Fatalf("Failed to initialize the tracer: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	defer sh(ctx)
+
 	mux := http.NewServeMux()
 
 	// RabbitMQ connection
@@ -32,39 +47,29 @@ func main() {
 	}
 	defer rabbitmq.Close()
 
-	log.Println("starting RabbitMQ connection")
+	log.Println("Starting RabbitMQ connection")
 
-	// mux.HandleFunc("POST /trip/preview", enableCORS(handleTripPreview))
-	// mux.HandleFunc("POST /trip/start", enableCORS(handleTripStart))
-
-	// // WebSockets (no CORS needed normally)
-	// mux.HandleFunc("/ws/drivers", handleDriversWebSocket)
-	// mux.HandleFunc("/ws/riders", handleRidersWebSocket)
-
-	mux.HandleFunc("POST /trip/preview", handleTripPreview)
-	mux.HandleFunc("POST /trip/start", handleTripStart)
-	mux.HandleFunc("/ws/drivers", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /trip/preview", tracing.WrapHandlerFunc(enableCORS(handleTripPreview), "/trip/preview"))
+	mux.Handle("POST /trip/start", tracing.WrapHandlerFunc(enableCORS(handleTripStart), "/trip/start"))
+	mux.Handle("/ws/drivers", tracing.WrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handleDriversWebSocket(w, r, rabbitmq)
-	})
-	mux.HandleFunc("/ws/riders", func(w http.ResponseWriter, r *http.Request) {
+	}, "/ws/drivers"))
+	mux.Handle("/ws/riders", tracing.WrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handleRidersWebSocket(w, r, rabbitmq)
-	})
-	mux.HandleFunc("/webhook/stripe", func(w http.ResponseWriter, r *http.Request) {
+	}, "/ws/riders"))
+	mux.Handle("/webhook/stripe", tracing.WrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handleStripeWebhook(w, r, rabbitmq)
-	})
+	}, "/webhook/stripe"))
 
-	//
 	server := &http.Server{
-		Addr: httpAddr,
-		// Handler: mux,
-		Handler: enableCORS(mux),
+		Addr:    httpAddr,
+		Handler: mux,
 	}
 
 	serverErrors := make(chan error, 1)
 
 	go func() {
-
-		log.Printf("server listening on %s", httpAddr)
+		log.Printf("Server listening on %s", httpAddr)
 		serverErrors <- server.ListenAndServe()
 	}()
 
@@ -73,16 +78,16 @@ func main() {
 
 	select {
 	case err := <-serverErrors:
-		log.Printf("error starting the server : %v", err)
+		log.Printf("Error starting the server: %v", err)
+
 	case sig := <-shutdown:
-		log.Printf("server is shutdown due to the %v signal", sig)
+		log.Printf("Server is shutting down due to %v signal", sig)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		err := server.Shutdown(ctx)
-		if err != nil {
-			log.Printf("could not stop server gracefully: %v", err)
+		if err := server.Shutdown(ctx); err != nil {
+			log.Printf("Could not stop the server gracefully: %v", err)
 			server.Close()
 		}
 	}
