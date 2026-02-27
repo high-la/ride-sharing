@@ -190,6 +190,65 @@ func (r *RabbitMQ) setupDeadLetterExchange() error {
 	return nil
 }
 
+type QueueConfig struct {
+	Name        string
+	RoutingKeys []string
+	Exchange    string
+}
+
+func (r *RabbitMQ) setupQueues() error {
+	queueConfigs := []QueueConfig{
+		{
+			Name:        FindAvailableDriversQueue,
+			RoutingKeys: []string{contracts.TripEventCreated, contracts.TripEventDriverNotInterested},
+			Exchange:    TripExchange,
+		},
+		{
+			Name:        DriverCmdTripRequestQueue,
+			RoutingKeys: []string{contracts.DriverCmdTripRequest},
+			Exchange:    TripExchange,
+		},
+		{
+			Name:        DriverTripResponseQueue,
+			RoutingKeys: []string{contracts.DriverCmdTripAccept, contracts.DriverCmdTripDecline},
+			Exchange:    TripExchange,
+		},
+		{
+			Name:        NotifyDriverNoDriversFoundQueue,
+			RoutingKeys: []string{contracts.TripEventNoDriversFound},
+			Exchange:    TripExchange,
+		},
+		{
+			Name:        NotifyDriverAssignQueue,
+			RoutingKeys: []string{contracts.TripEventDriverAssigned},
+			Exchange:    TripExchange,
+		},
+		{
+			Name:        PaymentTripResponseQueue,
+			RoutingKeys: []string{contracts.PaymentCmdCreateSession},
+			Exchange:    TripExchange,
+		},
+		{
+			Name:        NotifyPaymentSessionCreatedQueue,
+			RoutingKeys: []string{contracts.PaymentEventSessionCreated},
+			Exchange:    TripExchange,
+		},
+		{
+			Name:        NotifyPaymentSuccessQueue,
+			RoutingKeys: []string{contracts.PaymentEventSuccess},
+			Exchange:    TripExchange,
+		},
+	}
+
+	for _, cfg := range queueConfigs {
+		if err := r.declareAndBindQueueSafely(cfg.Name, cfg.RoutingKeys, cfg.Exchange); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (r *RabbitMQ) setupExchangesAndQueues() error {
 	// First setup the DLQ exchange and queue
 	if err := r.setupDeadLetterExchange(); err != nil {
@@ -206,105 +265,112 @@ func (r *RabbitMQ) setupExchangesAndQueues() error {
 		nil,          // arguments
 	)
 	if err != nil {
-		return fmt.Errorf("failed to declare exchange: %s: %v", TripExchange, err)
+		return fmt.Errorf("failed to declare exchange %s: %w", TripExchange, err)
 	}
 
-	if err := r.declareAndBindQueue(
-		FindAvailableDriversQueue,
-		[]string{
-			contracts.TripEventCreated, contracts.TripEventDriverNotInterested,
-		},
-		TripExchange,
-	); err != nil {
-		return err
-	}
-
-	if err := r.declareAndBindQueue(
-		DriverCmdTripRequestQueue,
-		[]string{contracts.DriverCmdTripRequest},
-		TripExchange,
-	); err != nil {
-		return err
-	}
-
-	if err := r.declareAndBindQueue(
-		DriverTripResponseQueue,
-		[]string{contracts.DriverCmdTripAccept, contracts.DriverCmdTripDecline},
-		TripExchange,
-	); err != nil {
-		return err
-	}
-
-	if err := r.declareAndBindQueue(
-		NotifyDriverNoDriversFoundQueue,
-		[]string{contracts.TripEventNoDriversFound},
-		TripExchange,
-	); err != nil {
-		return err
-	}
-
-	if err := r.declareAndBindQueue(
-		NotifyDriverAssignQueue,
-		[]string{contracts.TripEventDriverAssigned},
-		TripExchange,
-	); err != nil {
-		return err
-	}
-
-	if err := r.declareAndBindQueue(
-		PaymentTripResponseQueue,
-		[]string{contracts.PaymentCmdCreateSession},
-		TripExchange,
-	); err != nil {
-		return err
-	}
-
-	if err := r.declareAndBindQueue(
-		NotifyPaymentSessionCreatedQueue,
-		[]string{contracts.PaymentEventSessionCreated},
-		TripExchange,
-	); err != nil {
-		return err
-	}
-
-	if err := r.declareAndBindQueue(
-		NotifyPaymentSuccessQueue,
-		[]string{contracts.PaymentEventSuccess},
-		TripExchange,
-	); err != nil {
-		return err
-	}
-
-	return nil
+	return r.setupQueues()
 }
 
-func (r *RabbitMQ) declareAndBindQueue(queueName string, messageTypes []string, exchange string) error {
-	// Add dead letter configuration
-	args := amqp.Table{
-		"x-dead-letter-exchange": DeadLetterExchange,
+// declareAndBindQueueSafely handles queue declaration with proper error handling for existing queues
+// declareAndBindQueueSafely handles queue declaration with proper error handling for existing queues
+func (r *RabbitMQ) declareAndBindQueueSafely(queueName string, messageTypes []string, exchange string) error {
+	// First, try to inspect if the queue exists
+	existingQueue, inspectErr := r.Channel.QueueInspect(queueName)
+
+	if inspectErr == nil {
+		// Queue exists, we need to check if it has the dead letter configuration
+		// Since Args isn't directly accessible, we'll try to redeclare with passive mode
+		// to check if our desired args match
+
+		// Try to declare the queue passively first - this will succeed if queue exists
+		// and args match, fail if args don't match
+		args := amqp.Table{
+			"x-dead-letter-exchange": DeadLetterExchange,
+		}
+
+		_, declareErr := r.Channel.QueueDeclare(
+			queueName,
+			true,  // durable
+			false, // delete when unused
+			false, // exclusive
+			false, // no-wait
+			args,  // arguments with DLX config
+		)
+
+		if declareErr != nil {
+			// Check if it's a precondition failed error (406)
+			if amqpErr, ok := declareErr.(*amqp.Error); ok && amqpErr.Code == 406 {
+				log.Printf("WARNING: Queue %s exists with different arguments. Attempting to delete and recreate...", queueName)
+
+				// Delete the queue (this is safe in development)
+				_, deleteErr := r.Channel.QueueDelete(queueName, false, false, false)
+				if deleteErr != nil {
+					return fmt.Errorf("failed to delete queue %s: %v", queueName, deleteErr)
+				}
+
+				// Now create it with the correct configuration
+				newQueue, createErr := r.Channel.QueueDeclare(
+					queueName,
+					true,  // durable
+					false, // delete when unused
+					false, // exclusive
+					false, // no-wait
+					args,  // arguments with DLX config
+				)
+				if createErr != nil {
+					return fmt.Errorf("failed to recreate queue %s: %v", queueName, createErr)
+				}
+
+				log.Printf("Successfully recreated queue %s with dead letter exchange configuration", queueName)
+				existingQueue = newQueue
+			} else {
+				return fmt.Errorf("failed to declare queue %s: %v", queueName, declareErr)
+			}
+		} else {
+			log.Printf("Queue %s already exists with correct configuration", queueName)
+		}
+	} else {
+		// Queue doesn't exist, create it with DLX
+		if amqpErr, ok := inspectErr.(*amqp.Error); ok && amqpErr.Code == 404 {
+			log.Printf("Queue %s doesn't exist, creating with dead letter exchange configuration", queueName)
+
+			args := amqp.Table{
+				"x-dead-letter-exchange": DeadLetterExchange,
+			}
+
+			newQueue, createErr := r.Channel.QueueDeclare(
+				queueName,
+				true,  // durable
+				false, // delete when unused
+				false, // exclusive
+				false, // no-wait
+				args,  // arguments with DLX config
+			)
+			if createErr != nil {
+				return fmt.Errorf("failed to create queue %s: %v", queueName, createErr)
+			}
+
+			existingQueue = newQueue
+		} else {
+			return fmt.Errorf("failed to inspect queue %s: %v", queueName, inspectErr)
+		}
 	}
 
-	q, err := r.Channel.QueueDeclare(
-		queueName, // name
-		true,      // durable
-		false,     // delete when unused
-		false,     // exclusive
-		false,     // no-wait
-		args,      // arguments with DLX config
-	)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	for _, msg := range messageTypes {
+	// Bind the queue to all routing keys
+	for _, routingKey := range messageTypes {
 		if err := r.Channel.QueueBind(
-			q.Name,   // queue name
-			msg,      // routing key
-			exchange, // exchange
+			existingQueue.Name,
+			routingKey,
+			exchange,
 			false,
 			nil,
 		); err != nil {
-			return fmt.Errorf("failed to bind queue to %s: %v", queueName, err)
+			// Check if it's a binding error
+			if amqpErr, ok := err.(*amqp.Error); ok && amqpErr.Code == 406 {
+				log.Printf("Queue %s already bound to routing key %s", queueName, routingKey)
+				continue
+			}
+			return fmt.Errorf("failed to bind queue %s to routing key %s: %v", queueName, routingKey, err)
 		}
 	}
 

@@ -12,6 +12,7 @@ import (
 	"github.com/high-la/ride-sharing/services/trip-service/internal/infrastructure/grpc"
 	"github.com/high-la/ride-sharing/services/trip-service/internal/infrastructure/repository"
 	"github.com/high-la/ride-sharing/services/trip-service/internal/service"
+	"github.com/high-la/ride-sharing/shared/db"
 	"github.com/high-la/ride-sharing/shared/env"
 	"github.com/high-la/ride-sharing/shared/messaging"
 	"github.com/high-la/ride-sharing/shared/tracing"
@@ -38,6 +39,17 @@ func main() {
 	defer cancel()
 
 	defer sh(ctx)
+
+	// Initialize MongoDB
+	mongoClient, err := db.NewMongoClient(ctx, db.NewMongoDefaultConfig())
+	if err != nil {
+		log.Fatalf("Failed to initialize MongoDB, err: %v", err)
+	}
+	defer mongoClient.Disconnect(ctx)
+
+	mongoDb := db.GetDatabase(mongoClient, db.NewMongoDefaultConfig())
+
+	log.Printf(mongoDb.Name())
 
 	rabbitMqURI := env.GetString("RABBITMQ_URI", "amqp://guest:guest@rabbitmq:5672/")
 
