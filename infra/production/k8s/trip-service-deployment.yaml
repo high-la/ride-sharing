@@ -24,7 +24,28 @@ spec:
             limits:
               memory: "128Mi"
               cpu: "200m"
+          env:
+            - name: MONGODB_URI
+              valueFrom:
+                secretKeyRef:
+                  name: mongodb
+                  key: uri
+            - name: RABBITMQ_URI
+              valueFrom:
+                secretKeyRef:
+                  name: rabbitmq-credentials
+                  key: uri
+            - name: OSRM_API
+              valueFrom:
+                secretKeyRef:
+                  name: external-apis
+                  key: osrm
 
+            - name: JAEGER_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  key: JAEGER_ENDPOINT
+                  name: app-config
 ---
 apiVersion: v1
 kind: Service
