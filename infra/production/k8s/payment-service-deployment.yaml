@@ -14,9 +14,13 @@ spec:
       labels:
         app: payment-service
     spec:
+      # CHANGE 1: allow Kubernetes to pull private images from GHCR
+      imagePullSecrets:
+      - name: ghcr-secret
       containers:
         - name: payment-service
-          image: europe-west1-docker.pkg.dev/{{PROJECT_ID}}/ride-sharing/payment-service
+                    # CHANGE 2: Changed image path
+          image: ghcr.io/high-la/ride-hailing/payment-service:1.0
           ports:
             - containerPort: 9004
           resources:

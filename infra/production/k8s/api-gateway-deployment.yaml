@@ -12,9 +12,13 @@ spec:
       labels:
         app: api-gateway
     spec:
+      # CHANGE 1: allow Kubernetes to pull private images from GHCR
+      imagePullSecrets:
+        - name: ghcr-secret
       containers:
         - name: api-gateway
-          image: europe-west1-docker.pkg.dev/{{PROJECT_ID}}/ride-sharing/api-gateway
+          # CHANGE 2: Changed image path
+          image: ghcr.io/high-la/ride-hailing/api-gateway:1.0
           ports:
             - containerPort: 8081
           resources:

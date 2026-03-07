@@ -12,9 +12,13 @@ spec:
       labels:
         app: driver-service
     spec:
+      # CHANGE 1: allow Kubernetes to pull private images from GHCR
+      imagePullSecrets:
+        - name: ghcr-secret
       containers:
         - name: driver-service
-          image: europe-west1-docker.pkg.dev/{{PROJECT_ID}}/ride-sharing/driver-service
+          # CHANGE 2: Changed image path
+          image: ghcr.io/high-la/ride-hailing/driver-service:1.0
           env:
             # Jaeger endpoint
             - name: JAEGER_ENDPOINT

@@ -12,9 +12,13 @@ spec:
       labels:
         app: trip-service
     spec:
+      # CHANGE 1: allow Kubernetes to pull private images from GHCR
+      imagePullSecrets:
+        - name: ghcr-secret
       containers:
         - name: trip-service
-          image: europe-west1-docker.pkg.dev/{{PROJECT_ID}}/ride-sharing/trip-service
+          # CHANGE 2: Changed image path
+          image: ghcr.io/high-la/ride-hailing/trip-service:1.0
           ports:
             - containerPort: 9093
           resources:
