@@ -19,6 +19,7 @@ spec:
         - name: api-gateway
           # CHANGE 2: Changed image path
           image: ghcr.io/high-la/ride-hailing/api-gateway:1.0
+          imagePullPolicy: Always  # to pull image from ghcr on restart
           ports:
             - containerPort: 8081
           resources:

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/high-la/ride-sharing/shared/contracts"
 	"github.com/high-la/ride-sharing/shared/retry"
@@ -23,7 +24,24 @@ type RabbitMQ struct {
 }
 
 func NewRabbitMQ(uri string) (*RabbitMQ, error) {
-	conn, err := amqp.Dial(uri)
+
+	var conn *amqp.Connection
+	var err error
+
+	// Retry connection (important for Kubernetes startup)
+	for i := 0; i < 10; i++ {
+
+		log.Println("Connecting to RabbitMQ...")
+
+		conn, err = amqp.Dial(uri)
+		if err == nil {
+			break
+		}
+
+		log.Printf("RabbitMQ not ready, retrying in 5 seconds... (%d/10)", i+1)
+		time.Sleep(5 * time.Second)
+	}
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to RabbitMQ: %v", err)
 	}
@@ -40,7 +58,6 @@ func NewRabbitMQ(uri string) (*RabbitMQ, error) {
 	}
 
 	if err := rmq.setupExchangesAndQueues(); err != nil {
-		// Clean up if setup fails
 		rmq.Close()
 		return nil, fmt.Errorf("failed to setup exchanges and queues: %v", err)
 	}
@@ -51,26 +68,24 @@ func NewRabbitMQ(uri string) (*RabbitMQ, error) {
 type MessageHandler func(context.Context, amqp.Delivery) error
 
 func (r *RabbitMQ) ConsumeMessages(queueName string, handler MessageHandler) error {
-	// Set prefetch count to 1 for fair dispatch
-	// This tells RabbitMQ not to give more than one message to a service at a time.
-	// The worker will only get the next message after it has acknowledged the previous one.
+
 	err := r.Channel.Qos(
-		1,     // prefetchCount: Limit to 1 unacknowledged message per consumer
-		0,     // prefetchSize: No specific limit on message size
-		false, // global: Apply prefetchCount to each consumer individually
+		1,
+		0,
+		false,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to set QoS: %v", err)
 	}
 
 	msgs, err := r.Channel.Consume(
-		queueName, // queue
-		"",        // consumer
-		false,     // auto-ack
-		false,     // exclusive
-		false,     // no-local
-		false,     // no-wait
-		nil,       // args
+		queueName,
+		"",
+		false,
+		false,
+		false,
+		false,
+		nil,
 	)
 	if err != nil {
 		return err
@@ -78,17 +93,21 @@ func (r *RabbitMQ) ConsumeMessages(queueName string, handler MessageHandler) err
 
 	go func() {
 		for msg := range msgs {
+
 			if err := tracing.TracedConsumer(msg, func(ctx context.Context, d amqp.Delivery) error {
+
 				log.Printf("Received a message: %s", msg.Body)
 
 				cfg := retry.DefaultConfig()
+
 				err := retry.WithBackoff(ctx, cfg, func() error {
 					return handler(ctx, d)
 				})
+
 				if err != nil {
+
 					log.Printf("Message processing failed after %d retries for message ID: %s, err: %v", cfg.MaxRetries, d.MessageId, err)
 
-					// Add failure context before sending to the DLQ
 					headers := amqp.Table{}
 					if d.Headers != nil {
 						headers = d.Headers
@@ -100,17 +119,17 @@ func (r *RabbitMQ) ConsumeMessages(queueName string, handler MessageHandler) err
 					headers["x-retry-count"] = cfg.MaxRetries
 					d.Headers = headers
 
-					// Reject without requeue - message will go to the DLQ
 					_ = d.Reject(false)
+
 					return err
 				}
 
-				// Only Ack if the handler succeeds
 				if ackErr := msg.Ack(false); ackErr != nil {
 					log.Printf("ERROR: Failed to Ack message: %v. Message body: %s", ackErr, msg.Body)
 				}
 
 				return nil
+
 			}); err != nil {
 				log.Printf("Error processing message: %v", err)
 			}
@@ -121,6 +140,7 @@ func (r *RabbitMQ) ConsumeMessages(queueName string, handler MessageHandler) err
 }
 
 func (r *RabbitMQ) PublishMessage(ctx context.Context, routingKey string, message contracts.AmqpMessage) error {
+
 	log.Printf("Publishing message with routing key: %s", routingKey)
 
 	jsonMsg, err := json.Marshal(message)
@@ -138,47 +158,47 @@ func (r *RabbitMQ) PublishMessage(ctx context.Context, routingKey string, messag
 }
 
 func (r *RabbitMQ) publish(ctx context.Context, exchange, routingKey string, msg amqp.Publishing) error {
-	return r.Channel.PublishWithContext(ctx,
-		exchange,   // exchange
-		routingKey, // routing key
-		false,      // mandatory
-		false,      // immediate
+
+	return r.Channel.PublishWithContext(
+		ctx,
+		exchange,
+		routingKey,
+		false,
+		false,
 		msg,
 	)
 }
 
 func (r *RabbitMQ) setupDeadLetterExchange() error {
-	// Declare the dead letter exchange
+
 	err := r.Channel.ExchangeDeclare(
 		DeadLetterExchange,
 		"topic",
-		true,  // durable
-		false, // auto-deleted
-		false, // internal
-		false, // no-wait
-		nil,   // arguments
+		true,
+		false,
+		false,
+		false,
+		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to declare dead letter exchange: %v", err)
 	}
 
-	// Declare the dead letter queue
 	q, err := r.Channel.QueueDeclare(
 		DeadLetterQueue,
-		true,  // durable
-		false, // delete when unused
-		false, // exclusive
-		false, // no-wait
-		nil,   // arguments
+		true,
+		false,
+		false,
+		false,
+		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to declare dead letter queue: %v", err)
 	}
 
-	// Bind the queue to the exchange with a wildcard routing key
 	err = r.Channel.QueueBind(
 		q.Name,
-		"#", // wildcard routing key to catch all messages
+		"#",
 		DeadLetterExchange,
 		false,
 		nil,
@@ -197,6 +217,7 @@ type QueueConfig struct {
 }
 
 func (r *RabbitMQ) setupQueues() error {
+
 	queueConfigs := []QueueConfig{
 		{
 			Name:        FindAvailableDriversQueue,
@@ -241,28 +262,30 @@ func (r *RabbitMQ) setupQueues() error {
 	}
 
 	for _, cfg := range queueConfigs {
-		if err := r.declareAndBindQueueSafely(cfg.Name, cfg.RoutingKeys, cfg.Exchange); err != nil {
+
+		if err := r.declareAndBindQueue(cfg.Name, cfg.RoutingKeys, cfg.Exchange); err != nil {
 			return err
 		}
+
 	}
 
 	return nil
 }
 
 func (r *RabbitMQ) setupExchangesAndQueues() error {
-	// First setup the DLQ exchange and queue
+
 	if err := r.setupDeadLetterExchange(); err != nil {
 		return err
 	}
 
 	err := r.Channel.ExchangeDeclare(
-		TripExchange, // name
-		"topic",      // type
-		true,         // durable
-		false,        // auto-deleted
-		false,        // internal
-		false,        // no-wait
-		nil,          // arguments
+		TripExchange,
+		"topic",
+		true,
+		false,
+		false,
+		false,
+		nil,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to declare exchange %s: %w", TripExchange, err)
@@ -271,117 +294,53 @@ func (r *RabbitMQ) setupExchangesAndQueues() error {
 	return r.setupQueues()
 }
 
-// declareAndBindQueueSafely handles queue declaration with proper error handling for existing queues
-// declareAndBindQueueSafely handles queue declaration with proper error handling for existing queues
-func (r *RabbitMQ) declareAndBindQueueSafely(queueName string, messageTypes []string, exchange string) error {
-	// First, try to inspect if the queue exists
-	existingQueue, inspectErr := r.Channel.QueueInspect(queueName)
+func (r *RabbitMQ) declareAndBindQueue(queueName string, routingKeys []string, exchange string) error {
 
-	if inspectErr == nil {
-		// Queue exists, we need to check if it has the dead letter configuration
-		// Since Args isn't directly accessible, we'll try to redeclare with passive mode
-		// to check if our desired args match
-
-		// Try to declare the queue passively first - this will succeed if queue exists
-		// and args match, fail if args don't match
-		args := amqp.Table{
-			"x-dead-letter-exchange": DeadLetterExchange,
-		}
-
-		_, declareErr := r.Channel.QueueDeclare(
-			queueName,
-			true,  // durable
-			false, // delete when unused
-			false, // exclusive
-			false, // no-wait
-			args,  // arguments with DLX config
-		)
-
-		if declareErr != nil {
-			// Check if it's a precondition failed error (406)
-			if amqpErr, ok := declareErr.(*amqp.Error); ok && amqpErr.Code == 406 {
-				log.Printf("WARNING: Queue %s exists with different arguments. Attempting to delete and recreate...", queueName)
-
-				// Delete the queue (this is safe in development)
-				_, deleteErr := r.Channel.QueueDelete(queueName, false, false, false)
-				if deleteErr != nil {
-					return fmt.Errorf("failed to delete queue %s: %v", queueName, deleteErr)
-				}
-
-				// Now create it with the correct configuration
-				newQueue, createErr := r.Channel.QueueDeclare(
-					queueName,
-					true,  // durable
-					false, // delete when unused
-					false, // exclusive
-					false, // no-wait
-					args,  // arguments with DLX config
-				)
-				if createErr != nil {
-					return fmt.Errorf("failed to recreate queue %s: %v", queueName, createErr)
-				}
-
-				log.Printf("Successfully recreated queue %s with dead letter exchange configuration", queueName)
-				existingQueue = newQueue
-			} else {
-				return fmt.Errorf("failed to declare queue %s: %v", queueName, declareErr)
-			}
-		} else {
-			log.Printf("Queue %s already exists with correct configuration", queueName)
-		}
-	} else {
-		// Queue doesn't exist, create it with DLX
-		if amqpErr, ok := inspectErr.(*amqp.Error); ok && amqpErr.Code == 404 {
-			log.Printf("Queue %s doesn't exist, creating with dead letter exchange configuration", queueName)
-
-			args := amqp.Table{
-				"x-dead-letter-exchange": DeadLetterExchange,
-			}
-
-			newQueue, createErr := r.Channel.QueueDeclare(
-				queueName,
-				true,  // durable
-				false, // delete when unused
-				false, // exclusive
-				false, // no-wait
-				args,  // arguments with DLX config
-			)
-			if createErr != nil {
-				return fmt.Errorf("failed to create queue %s: %v", queueName, createErr)
-			}
-
-			existingQueue = newQueue
-		} else {
-			return fmt.Errorf("failed to inspect queue %s: %v", queueName, inspectErr)
-		}
+	args := amqp.Table{
+		"x-dead-letter-exchange": DeadLetterExchange,
 	}
 
-	// Bind the queue to all routing keys
-	for _, routingKey := range messageTypes {
-		if err := r.Channel.QueueBind(
-			existingQueue.Name,
+	q, err := r.Channel.QueueDeclare(
+		queueName,
+		true,
+		false,
+		false,
+		false,
+		args,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to declare queue %s: %v", queueName, err)
+	}
+
+	for _, routingKey := range routingKeys {
+
+		err := r.Channel.QueueBind(
+			q.Name,
 			routingKey,
 			exchange,
 			false,
 			nil,
-		); err != nil {
-			// Check if it's a binding error
-			if amqpErr, ok := err.(*amqp.Error); ok && amqpErr.Code == 406 {
-				log.Printf("Queue %s already bound to routing key %s", queueName, routingKey)
-				continue
-			}
+		)
+
+		if err != nil {
 			return fmt.Errorf("failed to bind queue %s to routing key %s: %v", queueName, routingKey, err)
 		}
+
 	}
+
+	log.Printf("Queue %s declared and bound successfully", queueName)
 
 	return nil
 }
 
 func (r *RabbitMQ) Close() {
-	if r.conn != nil {
-		r.conn.Close()
-	}
+
 	if r.Channel != nil {
 		r.Channel.Close()
 	}
+
+	if r.conn != nil {
+		r.conn.Close()
+	}
+
 }

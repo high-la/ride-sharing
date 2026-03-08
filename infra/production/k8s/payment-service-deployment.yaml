@@ -21,6 +21,7 @@ spec:
         - name: payment-service
                     # CHANGE 2: Changed image path
           image: ghcr.io/high-la/ride-hailing/payment-service:1.0
+          imagePullPolicy: Always
           ports:
             - containerPort: 9004
           resources:

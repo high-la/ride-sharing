@@ -8,3 +8,7 @@ data:
   GATEWAY_HTTP_ADDR: ":8081"
   STRIPE_SUCCESS_URL: "http://localhost:3000?payment=success"
   STRIPE_CANCEL_URL: "http://localhost:3000?payment=cancel"
+  # frontend URLs are here 
+  # NEXT_PUBLIC_API_URL: "https://ride.high-la.dev"
+  # NEXT_PUBLIC_WEBSOCKET_URL: "wss://ride.high-la.dev/ws"
+  
