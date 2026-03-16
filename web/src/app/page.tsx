@@ -89,6 +89,10 @@ function HomeContent() {
                 I Want to Drive
               </Button>
             </div>
+            <p className="text-gray-600 mt-8 mb-8">
+                For better experience select &quot;I Want to Drive&quot; then open second tab and select &quot;I Need a Ride&quot;
+            </p>
+
           </div>
         </div>
       )}
